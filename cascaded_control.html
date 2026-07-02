@@ -416,6 +416,37 @@ The **3–5× rule** is not folklore. It is the theoretical optimum ($2\times$) 
 
 At $3\times$, the cascade is at $\zeta \approx 0.87$ — well-damped. At $5\times$, it's at $\zeta \approx 1.12$ — conservative. Below $2\times$, the inner loop's phase lag begins to contaminate the outer loop's dynamics, and the simple "design each loop independently" procedure stops working — which is exactly what LQR does with its full state-feedback gain matrix.
 
+**A real-world confirmation: the VESC open-source motor controller.** The bandwidth separation derived above is not a textbook abstraction — it is exactly how real motor controllers are built. The VESC project (Vedder Electronic Speed Controller) is a widely-used open-source BLDC/PMSM motor controller whose architecture mirrors the cascade structure exactly, down to the execution context.
+
+**Inner loop — ADC interrupt service routine.** The current control loop executes every PWM cycle inside the ADC interrupt handler, at the PWM switching frequency of **20–40 kHz** (period: 25–50 µs). Every ISR call reads phase currents from the ADC, runs the rotor position observer, executes the PI current controller (D/Q axis), computes space-vector modulation, and updates PWM duty cycles.
+
+**Outer loop — dedicated RTOS thread.** The speed and position PID controllers run in a separate ChibiOS thread that sleeps and wakes at a configurable rate:
+
+| PID Rate | Sleep Interval | Use Case |
+|----------|---------------|----------|
+| 25 Hz | 40 ms | Very slow positioning |
+| 100 Hz | 10 ms | Moderate speed control |
+| 500 Hz | 2 ms | Responsive speed control |
+| **1000 Hz (default)** | 1 ms | General-purpose |
+| 2500 Hz | 400 µs | High-performance |
+| 5000 Hz | 200 µs | Racing / extreme dynamics |
+| 10000 Hz | 100 µs | Maximum responsiveness |
+
+Each wake, the thread runs both the position PID and the speed PID in sequence — position control goes through the speed PID first, then the current controller. Both position and speed PID share the same loop rate.
+
+**The concrete numbers:**
+
+| | Inner (Current) Loop | Outer (Speed/Position) Loop |
+|---|---|---|
+| Execution context | ADC ISR (interrupt) | RTOS thread |
+| Period | PWM period (~25–50 µs) | Configurable (0.1–40 ms) |
+| Frequency | 20–40 kHz | 25 Hz – 10 kHz (default 1 kHz) |
+| Ratio | — | Inner is **20–40× faster** than outer |
+
+Under default settings, the inner current loop runs at 20+ kHz while the outer speed/position loop runs at 1 kHz — a **20:1 to 40:1 ratio**. This is far more conservative than the derived 3–5× minimum, and for good reason: the PWM frequency is dictated by the power electronics (switching losses vs. current ripple), not by control bandwidth requirements. The 20–40× ratio is a free byproduct — the power stage must switch fast, so the current loop inherits an enormous bandwidth budget. The designer simply tunes the PI gains to place the closed-loop current bandwidth somewhere comfortably inside that window, and the outer loops enjoy a current loop that is essentially instantaneous from their perspective.
+
+This is the cascade of §1–5, running on real silicon, at real sample rates. The split between ISR (inner) and thread (outer) execution contexts is exactly the multi-rate architecture that the next section analyzes from a discrete-time perspective.
+
 ### 6.6 Why the outer loop runs slower: the discrete-time trap
 
 Everything in §6.1–6.5 was derived in continuous time. In $s$-domain, the bandwidth separation is the whole story — keep $\omega_{\text{in}} \geq 3\omega_{\text{out}}$, tune each loop independently, done.
@@ -750,6 +781,9 @@ The cascade is an example of something deep: **optimality is not the only design
 
 **Multi-rate control and lifting:**
 - Chen, T. & Francis, B.A. (1995). *Optimal Sampled-Data Control Systems*. Springer. — Chapters 8–9 develop the lifting technique for multi-rate systems: packing fast and slow samples into an augmented single-rate representation, designing the optimal controller on the lifted system, and deconstructing it into separate fast and slow gains. This is the mathematical foundation for §6.7 Approach 2.
+
+**Open-source motor controller (the VESC example in §6.5):**
+- Vedder, B. (2014–present). *VESC — Vedder Electronic Speed Controller*. [github.com/vedderb/bldc](https://github.com/vedderb/bldc). — The BLDC/PMSM motor controller whose cascaded architecture is analyzed in §6.5. Source files `mcpwm_foc.c` (current control ISR at `mcpwm_foc_adc_int_handler`, line ~2860) and `mcconf_default.h` (default PID rate of 1000 Hz) provide the concrete implementation details behind the inner/outer loop split.
 
 **Flight control implementation:**
 - Stevens, B.L., Lewis, F.L., & Johnson, E.N. (2015). *Aircraft Control and Simulation*, 3rd ed. Wiley. — Chapter 4 on aircraft longitudinal dynamics (the short-period model used in §6.7). Chapters 6–7 cover classical and modern flight control design, including the inner-rate/outer-attitude cascade architecture.
