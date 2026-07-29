@@ -193,6 +193,12 @@ $$ \text{Find } K \text{ that minimizes } \max_{\omega} \bar{\sigma}\big(T_{zw}(
 
 Here $\bar{\sigma}$ is the maximum singular value (for MIMO) — it's the worst-case amplification at frequency $\omega$. The symbol $\|\cdot\|_\infty$ (pronounced "H-infinity norm") is exactly this: the peak magnitude across all frequencies. Minimizing $\|T_{zw}\|_\infty$ means minimizing the worst thing that can happen.
 
+**A note on notation:** $T_{zw}$ means the closed-loop transfer function from $w$ to $z$, where:
+- $w$ = **exogenous inputs** — everything that comes from outside the controller: reference commands, disturbances, sensor noise, anything that perturbs the system
+- $z$ = **regulated outputs** — everything you want to keep small: tracking error, control effort, actuator rate, any signal whose size indicates poor performance
+
+The subscripts $zw$ follow the standard control convention of "from (second subscript) → to (first subscript)." So $T_{zw}$ maps disturbances-and-commands $(w)$ to errors-and-effort $(z)$. This is formalized in §6 with the generalized plant $P(s)$, but the notation is used throughout because the fundamental H∞ problem is always "make the worst-case $w \to z$ gain as small as possible."
+
 The contrast with LQR is stark:
 
 | | LQR (H₂) | H∞ |
